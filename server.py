@@ -3,6 +3,7 @@ import os
 import httpx
 import logging
 import sys
+from typing import Any
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 
@@ -15,18 +16,22 @@ logging.basicConfig(
 logger = logging.getLogger("financial-datasets-mcp")
 
 # Initialize FastMCP server
-mcp = FastMCP("financial-datasets")
+mcp = FastMCP(
+    "financial-datasets",
+    host=os.getenv("MCP_HOST", "0.0.0.0"),
+    port=int(os.getenv("MCP_PORT", "8000")),
+)
 
 # Constants
 FINANCIAL_DATASETS_API_BASE = "https://api.financialdatasets.ai"
 
 
 # Helper function to make API requests
-async def make_request(url: str) -> dict[str, any] | None:
+async def make_request(url: str) -> dict[str, Any] | None:
     """Make a request to the Financial Datasets API with proper error handling."""
     # Load environment variables from .env file
     load_dotenv()
-    
+
     headers = {}
     if api_key := os.environ.get("FINANCIAL_DATASETS_API_KEY"):
         headers["X-API-KEY"] = api_key
@@ -351,26 +356,39 @@ async def get_sec_filings(
     url = f"{FINANCIAL_DATASETS_API_BASE}/filings/?ticker={ticker}&limit={limit}"
     if filing_type:
         url += f"&filing_type={filing_type}"
- 
+
     # Call the API
     data = await make_request(url)
 
     # Extract the SEC filings
-    filings = data.get("filings", [])
+    filings = data.get("filings", []) if data else []
 
     # Check if SEC filings are found
     if not filings:
-        return f"Unable to fetch SEC filings or no SEC filings found."
+        return "Unable to fetch SEC filings or no SEC filings found."
 
     # Stringify the SEC filings
     return json.dumps(filings, indent=2)
+
 
 if __name__ == "__main__":
     # Log server startup
     logger.info("Starting Financial Datasets MCP Server...")
 
+    # Transport can be "stdio" (default) or "http" (streamable-http)
+    transport_env = os.getenv("MCP_TRANSPORT", "stdio").lower()
+
     # Initialize and run the server
-    mcp.run(transport="stdio")
+    if transport_env in ["http", "streamable-http"]:
+        # Use streamable-http as the modern standard
+        transport_type = "streamable-http"
+        logger.info(
+            f"Running in {transport_type} mode on {mcp.settings.host}:{mcp.settings.port}"
+        )
+        mcp.run(transport=transport_type)
+    else:
+        logger.info("Running in stdio mode")
+        mcp.run(transport="stdio")
 
     # This line won't be reached during normal operation
     logger.info("Server stopped")
